@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Графики из Excel + время (исправлено)</title>
+    <title>Графики из Excel + время (суммы в часах)</title>
     <style>
-        /* стили без изменений (см. предыдущие версии) */
+        /* стили без изменений */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -144,11 +144,11 @@
 </head>
 <body>
 <div class="container">
-    <h1>📊 Построитель графиков из Excel + суммы (надёжный парсинг времени)</h1>
+    <h1>📊 Построитель графиков из Excel + суммы (часы для времени)</h1>
     <div class="instruction">
         <strong>📋 Инструкция:</strong> Выделите таблицу в Excel (включая заголовки столбцов), скопируйте (Ctrl+C) и вставьте ниже (Ctrl+V). Первый столбец — подписи оси X, остальные — ряды данных. Первая строка — названия рядов. <br> 
-        <small>🔢 Поддерживаются любые числовые и временные форматы (например, 5 мин., 00:05:00, 2:30). Временные значения преобразуются в минуты.</small><br>
-        <strong>📊 В легенде отображается сумма значений каждого столбца (в минутах для временных данных).</strong>
+        <small>🔢 Поддерживаются любые числовые и временные форматы (например, 5 мин., 00:05:00, 2:30). Временные значения преобразуются в минуты (график), а сумма в легенде показывается в часах.</small><br>
+        <strong>📊 В легенде отображается сумма значений: для чисел — в исходных единицах, для времени — в часах.</strong>
     </div>
 
     <textarea id="dataInput" placeholder="Вставьте данные из Excel (например:&#10;Задача	Время&#10;Задача1	00:05:00&#10;Задача2	00:03:30&#10;Задача3	00:07:15">Задача	Время
@@ -172,7 +172,7 @@
 </div>
 
 <footer>
-    <span class="version">v1.3.2</span> — улучшенный парсинг времени (ЧЧ:ММ:СС, ММ:СС, с текстом)
+    <span class="version">v1.3.3</span> — суммы времени в часах
 </footer>
 
 <script>
@@ -204,20 +204,27 @@
         }
 
         /**
-         * Надёжное преобразование временной строки в минуты.
-         * Ищет в строке первое вхождение паттерна времени:
-         *   - ЧЧ:ММ:СС.миллисекунды
-         *   - ЧЧ:ММ:СС
-         *   - ММ:СС
-         *   - ЧЧ:ММ
-         * Игнорирует окружающий текст, знак минус учитывается.
+         * Проверка, является ли строка временным форматом (ЧЧ:ММ:СС, ММ:СС и т.д.)
+         */
+        function isTimeString(cell) {
+            if (typeof cell !== 'string') return false;
+            const str = cell.trim();
+            if (str === '') return false;
+            // Регулярное выражение для поиска времени: опциональный знак, цифры, двоеточие, цифры, опционально :цифры и .цифры
+            // При этом строка может содержать и другие символы, но главное, чтобы подпаттерн времени присутствовал.
+            // Для определения типа столбца достаточно наличия такого паттерна в ячейке.
+            const timePattern = /-?\d{1,2}:\d{1,2}(:\d{1,2}(\.\d+)?)?/;
+            return timePattern.test(str);
+        }
+
+        /**
+         * Преобразование временной строки в минуты (возвращает число или null, если не время)
          */
         function parseTimeToMinutes(cell) {
             if (typeof cell !== 'string') return null;
             let str = cell.trim();
             if (str === '') return null;
 
-            // Определяем знак
             let sign = 1;
             if (str.startsWith('-')) {
                 sign = -1;
@@ -226,35 +233,26 @@
                 str = str.substring(1).trim();
             }
 
-            // Регулярное выражение для поиска времени: часы:минуты:секунды или минуты:секунды
-            // Допускает двоеточия, опциональные миллисекунды через точку.
-            // Ищем последовательность вида: одна или две цифры, двоеточие, одна или две цифры, возможно ещё двоеточие и цифры, и опционально .цифры
             const timeRegex = /(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?/;
             const match = str.match(timeRegex);
             if (!match) return null;
 
             let hours = 0, minutes = 0, seconds = 0, ms = 0;
             if (match[3] !== undefined) {
-                // Формат ЧЧ:ММ:СС или ЧЧ:ММ:СС.мс
                 hours = parseInt(match[1], 10);
                 minutes = parseInt(match[2], 10);
                 seconds = parseInt(match[3], 10);
                 if (match[4] !== undefined) {
-                    ms = parseInt(match[4], 10) / 1000; // доли секунды
+                    ms = parseInt(match[4], 10) / 1000;
                 }
             } else {
-                // Формат ММ:СС или ЧЧ:ММ (определим по значению: если первая часть > 23 и вторая < 60, то скорее ММ:СС)
-                // Но для простоты считаем, что это минуты:секунды, т.к. в Excel часто так.
                 minutes = parseInt(match[1], 10);
                 seconds = parseInt(match[2], 10);
-                // Проверка на ЧЧ:ММ: если минуты > 59, то это на самом деле часы:минуты
                 if (minutes > 59 && seconds < 60) {
-                    // Тогда переинтерпретируем: первая часть — часы, вторая — минуты
                     hours = minutes;
                     minutes = seconds;
                     seconds = 0;
                 }
-                // иначе оставляем как минуты:секунды
             }
 
             const totalMinutes = hours * 60 + minutes + (seconds + ms) / 60;
@@ -263,21 +261,19 @@
 
         /**
          * Основная функция извлечения числа из ячейки.
-         * Сначала пытается распознать время (если есть двоеточие),
-         * иначе парсит как число (с учётом валюты, пробелов, запятых).
-         * Возвращает число (0, если не удалось распознать).
+         * Сначала пробует как время, если не получилось — как обычное число.
          */
         function parseNumber(cell) {
             if (typeof cell !== 'string') return 0;
             let clean = cell.trim().replace(/\s+/g, ' ').replace(/\u00A0/g, ' ');
 
-            // 1. Если есть двоеточие, пробуем интерпретировать как время
+            // Попытка распарсить как время
             if (clean.includes(':')) {
                 const timeVal = parseTimeToMinutes(clean);
                 if (timeVal !== null) return timeVal;
             }
 
-            // 2. Парсинг как число (ищем первое число с возможной запятой/точкой)
+            // Парсинг как число
             const numberMatch = clean.match(/-?\d+[.,]?\d*/);
             if (numberMatch) {
                 let numStr = numberMatch[0];
@@ -286,7 +282,6 @@
                 if (!isNaN(val)) return val;
             }
 
-            // 3. Ничего не найдено
             return 0;
         }
 
@@ -344,17 +339,38 @@
             return { headers: headerCells, rows: dataRows };
         }
 
-        // Построение графика (без изменений)
+        // Построение графика с определением временных столбцов
         function renderChart(headers, rows) {
             const labels = rows.map(row => row[0]);
 
             const datasets = [];
             for (let colIdx = 1; colIdx < headers.length; colIdx++) {
                 const seriesName = headers[colIdx];
-                const data = rows.map(row => parseNumber(row[colIdx]));
+                const data = [];
+                let anyTime = false; // флаг, есть ли в столбце временные значения
 
+                for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
+                    const cell = rows[rowIdx][colIdx];
+                    // Определяем, является ли ячейка временем (для типа столбца)
+                    if (isTimeString(cell)) {
+                        anyTime = true;
+                    }
+                    // Получаем числовое значение (в минутах, если время)
+                    const val = parseNumber(cell);
+                    data.push(val);
+                }
+
+                // Вычисляем сумму
                 const sum = data.reduce((acc, val) => acc + val, 0);
-                const formattedSum = Number.isInteger(sum) ? sum : sum.toFixed(2).replace(/\.?0+$/, '');
+                let formattedSum;
+                if (anyTime) {
+                    // Если столбец временной, переводим сумму из минут в часы
+                    const hours = sum / 60;
+                    formattedSum = hours.toFixed(2).replace(/\.?0+$/, '') + ' ч';
+                } else {
+                    // Обычное число
+                    formattedSum = (Number.isInteger(sum) ? sum : sum.toFixed(2).replace(/\.?0+$/, ''));
+                }
 
                 const hue = (colIdx * 60) % 360;
                 datasets.push({
