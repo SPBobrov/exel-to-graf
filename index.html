@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Графики из Excel + время</title>
+    <title>Графики из Excel + время (исправлено)</title>
     <style>
+        /* стили без изменений (см. предыдущие версии) */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -143,10 +144,10 @@
 </head>
 <body>
 <div class="container">
-    <h1>📊 Построитель графиков из Excel + суммы (с поддержкой времени)</h1>
+    <h1>📊 Построитель графиков из Excel + суммы (надёжный парсинг времени)</h1>
     <div class="instruction">
         <strong>📋 Инструкция:</strong> Выделите таблицу в Excel (включая заголовки столбцов), скопируйте (Ctrl+C) и вставьте ниже (Ctrl+V). Первый столбец — подписи оси X, остальные — ряды данных. Первая строка — названия рядов. <br> 
-        <small>🔢 Поддерживаются любые числовые форматы: точки, запятые, символы валют, пробелы, а также временные форматы (например, 00:05:00.000 → 5 минут).</small><br>
+        <small>🔢 Поддерживаются любые числовые и временные форматы (например, 5 мин., 00:05:00, 2:30). Временные значения преобразуются в минуты.</small><br>
         <strong>📊 В легенде отображается сумма значений каждого столбца (в минутах для временных данных).</strong>
     </div>
 
@@ -171,7 +172,7 @@
 </div>
 
 <footer>
-    <span class="version">v1.3.1</span> — поддержка временных форматов (ЧЧ:ММ:СС)
+    <span class="version">v1.3.2</span> — улучшенный парсинг времени (ЧЧ:ММ:СС, ММ:СС, с текстом)
 </footer>
 
 <script>
@@ -186,18 +187,15 @@
 
         let chartInstance = null;
 
-        // Отображение ошибки
         function showError(message) {
             errorBox.style.display = 'block';
             errorBox.textContent = '❌ ' + message;
         }
 
-        // Скрыть ошибку
         function hideError() {
             errorBox.style.display = 'none';
         }
 
-        // Удалить старый график
         function destroyChart() {
             if (chartInstance) {
                 chartInstance.destroy();
@@ -206,17 +204,18 @@
         }
 
         /**
-         * Преобразование временной строки (ЧЧ:ММ:СС или ММ:СС) в минуты (дробное число).
-         * Поддерживает форматы:
-         * - ЧЧ:ММ:СС.миллисекунды
-         * - ММ:СС
-         * - ЧЧ:ММ
-         * - с возможным знаком минус в начале
+         * Надёжное преобразование временной строки в минуты.
+         * Ищет в строке первое вхождение паттерна времени:
+         *   - ЧЧ:ММ:СС.миллисекунды
+         *   - ЧЧ:ММ:СС
+         *   - ММ:СС
+         *   - ЧЧ:ММ
+         * Игнорирует окружающий текст, знак минус учитывается.
          */
-        function parseTimeToMinutes(timeStr) {
-            // Убираем пробелы по краям
-            let str = timeStr.trim();
-            if (str === '') return 0;
+        function parseTimeToMinutes(cell) {
+            if (typeof cell !== 'string') return null;
+            let str = cell.trim();
+            if (str === '') return null;
 
             // Определяем знак
             let sign = 1;
@@ -227,88 +226,71 @@
                 str = str.substring(1).trim();
             }
 
-            // Разделяем по двоеточиям
-            const parts = str.split(':');
-            if (parts.length < 2) return null; // не похоже на время
+            // Регулярное выражение для поиска времени: часы:минуты:секунды или минуты:секунды
+            // Допускает двоеточия, опциональные миллисекунды через точку.
+            // Ищем последовательность вида: одна или две цифры, двоеточие, одна или две цифры, возможно ещё двоеточие и цифры, и опционально .цифры
+            const timeRegex = /(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?/;
+            const match = str.match(timeRegex);
+            if (!match) return null;
 
-            let hours = 0, minutes = 0, seconds = 0;
-
-            if (parts.length === 2) {
-                // Формат ММ:СС или ЧЧ:ММ (если минут больше 59, то скорее всего ЧЧ:ММ)
-                // Попробуем интерпретировать: если первая часть большая (>23) и вторая <60, то, вероятно, минуты:секунды.
-                // Но проще: считаем, что ЧЧ:ММ, если вторая часть <60, а первая может быть любой.
-                minutes = parseInt(parts[0], 10);
-                seconds = parseInt(parts[1], 10);
-                if (isNaN(minutes) || isNaN(seconds)) return null;
-                // Если секунды > 59, возможно, это ММ:СС наоборот? Но тогда вторая часть должна быть <60.
-                // Если секунды > 59, значит это скорее ЧЧ:ММ, и минуты надо интерпретировать как часы.
-                if (seconds >= 60) {
-                    // Скорее всего формат ЧЧ:ММ, где вторая часть — минуты, а первая — часы
+            let hours = 0, minutes = 0, seconds = 0, ms = 0;
+            if (match[3] !== undefined) {
+                // Формат ЧЧ:ММ:СС или ЧЧ:ММ:СС.мс
+                hours = parseInt(match[1], 10);
+                minutes = parseInt(match[2], 10);
+                seconds = parseInt(match[3], 10);
+                if (match[4] !== undefined) {
+                    ms = parseInt(match[4], 10) / 1000; // доли секунды
+                }
+            } else {
+                // Формат ММ:СС или ЧЧ:ММ (определим по значению: если первая часть > 23 и вторая < 60, то скорее ММ:СС)
+                // Но для простоты считаем, что это минуты:секунды, т.к. в Excel часто так.
+                minutes = parseInt(match[1], 10);
+                seconds = parseInt(match[2], 10);
+                // Проверка на ЧЧ:ММ: если минуты > 59, то это на самом деле часы:минуты
+                if (minutes > 59 && seconds < 60) {
+                    // Тогда переинтерпретируем: первая часть — часы, вторая — минуты
                     hours = minutes;
                     minutes = seconds;
                     seconds = 0;
-                } else {
-                    // Если первая часть большая, но вторая <60 — оставляем как минуты:секунды
-                    // (например, 90:00 → 90 минут 0 секунд)
-                    // Ничего не меняем
                 }
-            } else if (parts.length === 3) {
-                // Формат ЧЧ:ММ:СС
-                hours = parseInt(parts[0], 10);
-                minutes = parseInt(parts[1], 10);
-                // последняя часть может содержать миллисекунды через точку
-                const lastPart = parts[2].split('.');
-                seconds = parseInt(lastPart[0], 10);
-                if (lastPart.length > 1) {
-                    // миллисекунды игнорируем, но можно добавить как долю секунды
-                    // для простоты пропускаем, но можно учесть: + parseInt(lastPart[1]) / 1000
-                }
-                if (isNaN(hours) || isNaN(minutes) || isNaN(seconds)) return null;
-            } else {
-                return null; // неизвестный формат
+                // иначе оставляем как минуты:секунды
             }
 
-            // Проверка на допустимые значения
-            if (minutes >= 60 || seconds >= 60) {
-                // Возможно, формат интерпретирован неверно, но мы всё равно посчитаем минуты
-                // (например, 80:75 — невалид, но просуммируем как есть)
-            }
-
-            const totalMinutes = hours * 60 + minutes + seconds / 60;
+            const totalMinutes = hours * 60 + minutes + (seconds + ms) / 60;
             return sign * totalMinutes;
         }
 
         /**
-         * Улучшенное извлечение числа из строки.
-         * Сначала пробует распарсить как число (с валютой и т.д.), если не получается (результат 0)
-         * и строка содержит двоеточия, пробует интерпретировать как время.
+         * Основная функция извлечения числа из ячейки.
+         * Сначала пытается распознать время (если есть двоеточие),
+         * иначе парсит как число (с учётом валюты, пробелов, запятых).
+         * Возвращает число (0, если не удалось распознать).
          */
         function parseNumber(cell) {
             if (typeof cell !== 'string') return 0;
-
-            // Очистка
             let clean = cell.trim().replace(/\s+/g, ' ').replace(/\u00A0/g, ' ');
 
-            // 1. Попытка стандартного парсинга числа (с удалением лишнего)
-            const numberMatch = clean.match(/-?\d+[.,]?\d*/);
-            if (numberMatch) {
-                let numStr = numberMatch[0];
-                if (numStr.includes(',')) numStr = numStr.replace(',', '.');
-                const val = parseFloat(numStr);
-                if (!isNaN(val)) return val; // вернём число, даже 0
-            }
-
-            // 2. Если стандартный парсинг не дал числа (или дал 0, но строка непустая) и есть двоеточия — пробуем время
+            // 1. Если есть двоеточие, пробуем интерпретировать как время
             if (clean.includes(':')) {
                 const timeVal = parseTimeToMinutes(clean);
                 if (timeVal !== null) return timeVal;
             }
 
-            // 3. Иначе возвращаем 0
+            // 2. Парсинг как число (ищем первое число с возможной запятой/точкой)
+            const numberMatch = clean.match(/-?\d+[.,]?\d*/);
+            if (numberMatch) {
+                let numStr = numberMatch[0];
+                if (numStr.includes(',')) numStr = numStr.replace(',', '.');
+                const val = parseFloat(numStr);
+                if (!isNaN(val)) return val;
+            }
+
+            // 3. Ничего не найдено
             return 0;
         }
 
-        // Парсинг всего текста
+        // Парсинг всего текста (без изменений)
         function parseExcelData(text) {
             if (!text || text.trim() === '') {
                 throw new Error('Нет данных. Вставьте таблицу из Excel.');
@@ -319,27 +301,22 @@
                 throw new Error('Должно быть минимум 2 строки: заголовок и одна строка данных.');
             }
 
-            // Определяем разделитель (табуляция, точка с запятой, запятая, пробелы)
             let separator = '\t';
             if (!lines[0].includes('\t')) {
                 if (lines[0].includes(';')) {
                     separator = ';';
                 } else if (lines[0].includes(',')) {
-                    // Запятая может быть разделителем или десятичной запятой — предпочтём разделитель,
-                    // но если в данных много запятых, возможно, это разделитель.
                     separator = ',';
                 } else {
-                    separator = /\s+/; // пробелы как запасной вариант
+                    separator = /\s+/;
                 }
             }
 
-            // Заголовки
             const headerCells = lines[0].split(separator).map(cell => cell.trim());
             if (headerCells.length < 2) {
                 throw new Error('Заголовок должен содержать минимум два столбца.');
             }
 
-            // Данные
             const dataRows = [];
             for (let i = 1; i < lines.length; i++) {
                 const cells = lines[i].split(separator).map(cell => cell.trim());
@@ -354,7 +331,6 @@
                 throw new Error('Нет корректных строк с данными.');
             }
 
-            // Проверка длины строк (обрезаем лишнее, дополнять не будем)
             const expectedCols = headerCells.length;
             for (let row of dataRows) {
                 if (row.length < expectedCols) {
@@ -368,17 +344,15 @@
             return { headers: headerCells, rows: dataRows };
         }
 
-        // Построение графика
+        // Построение графика (без изменений)
         function renderChart(headers, rows) {
-            const labels = rows.map(row => row[0]); // первый столбец — подписи X
+            const labels = rows.map(row => row[0]);
 
             const datasets = [];
             for (let colIdx = 1; colIdx < headers.length; colIdx++) {
                 const seriesName = headers[colIdx];
-                // Извлекаем числа из каждой строки для данного столбца
                 const data = rows.map(row => parseNumber(row[colIdx]));
 
-                // Вычисляем сумму
                 const sum = data.reduce((acc, val) => acc + val, 0);
                 const formattedSum = Number.isInteger(sum) ? sum : sum.toFixed(2).replace(/\.?0+$/, '');
 
@@ -411,7 +385,7 @@
                             grid: { color: '#e2e8f0' },
                             title: {
                                 display: true,
-                                text: 'Значение (минуты для временных данных)'
+                                text: 'Значение (минуты)'
                             }
                         },
                         x: { grid: { display: false } }
@@ -424,7 +398,6 @@
             chartInstance = new Chart(canvas, config);
         }
 
-        // Обработчик кнопки "Построить график"
         function handleDraw() {
             hideError();
             try {
@@ -437,19 +410,19 @@
             }
         }
 
-        // Загрузить пример (с временными данными)
         function loadSample() {
             const sample = `Задача	Время (мин)
 Задача 1	00:05:00
 Задача 2	00:03:30
 Задача 3	00:07:15
 Задача 4	00:02:45
-Задача 5	00:12:00`;
+Задача 5	00:12:00
+Задача 6	1:30:00
+Задача 7	0:45:30`;
             dataInput.value = sample;
             handleDraw();
         }
 
-        // Сброс
         function resetData() {
             dataInput.value = '';
             hideError();
@@ -457,19 +430,16 @@
             dataInput.focus();
         }
 
-        // Привязка событий
         drawBtn.addEventListener('click', handleDraw);
         sampleBtn.addEventListener('click', loadSample);
         resetBtn.addEventListener('click', resetData);
 
-        // При загрузке строим график, если поле не пустое
         window.addEventListener('load', () => {
             if (dataInput.value.trim() !== '') {
                 handleDraw();
             }
         });
 
-        // Ctrl+Enter для построения
         dataInput.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
