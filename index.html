@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Графики из Excel + суммы</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        }
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: #f5f7fb;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h1 {
+            font-size: 2rem;
+            font-weight: 500;
+            color: #1e293b;
+            margin: 0 0 10px 0;
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 10px;
+        }
+        .instruction {
+            background: #e2e8f0;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            color: #334155;
+        }
+        textarea {
+            width: 100%;
+            height: 180px;
+            padding: 15px;
+            border: 2px solid #cbd5e1;
+            border-radius: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            resize: vertical;
+            background: white;
+            transition: border-color 0.2s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+        }
+        .button-group {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            border-radius: 40px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            box-shadow: 0 4px 6px rgba(59,130,246,0.3);
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        .sample-btn {
+            background: #94a3b8;
+            box-shadow: none;
+        }
+        .sample-btn:hover {
+            background: #64748b;
+        }
+        .reset-btn {
+            background: #f97316;
+            box-shadow: 0 4px 6px rgba(249,115,22,0.3);
+        }
+        .reset-btn:hover {
+            background: #ea580c;
+        }
+        .chart-wrapper {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            margin-top: 10px;
+            flex: 1;
+            min-height: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            max-height: 500px;
+            max-width: 100%;
+            width: 100% !important;
+            height: auto !important;
+        }
+        .error-message {
+            background: #fee2e2;
+            color: #b91c1c;
+            padding: 12px 20px;
+            border-radius: 8px;
+            border-left: 6px solid #ef4444;
+            font-weight: 500;
+        }
+        footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9rem;
+            padding: 15px 0 5px;
+            border-top: 1px dashed #cbd5e1;
+        }
+        .version {
+            font-family: monospace;
+            background: #e2e8f0;
+            padding: 4px 10px;
+            border-radius: 30px;
+            display: inline-block;
+        }
+    </style>
+    <!-- Подключаем Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>📊 Построитель графиков из Excel + суммы</h1>
+    <div class="instruction">
+        <strong>📋 Инструкция:</strong> Выделите таблицу в Excel (включая заголовки столбцов), скопируйте (Ctrl+C) и вставьте ниже (Ctrl+V). Первый столбец станет подписями оси X, остальные — рядами данных. Первая строка — названия рядов. <br> 
+        <small>🔢 Десятичный разделитель — точка (если в Excel используется запятая, замените её).</small><br>
+        <strong>📊 Новое:</strong> В легенде теперь отображается сумма значений каждого столбца.
+    </div>
+
+    <textarea id="dataInput" placeholder="Вставьте данные из Excel (например:&#10;Месяц	Продажи	Прибыль&#10;Январь	100	25&#10;Февраль	150	30&#10;Март	200	45">Месяц	Продажи	Прибыль
+Январь	100	25
+Февраль	150	30
+Март	200	45</textarea>
+
+    <div class="button-group">
+        <button id="drawBtn">📈 Построить график</button>
+        <button id="sampleBtn" class="sample-btn">🔄 Загрузить пример</button>
+        <button id="resetBtn" class="reset-btn">🗑️ Сбросить</button>
+    </div>
+
+    <!-- Блок для ошибок -->
+    <div id="errorBox" class="error-message" style="display: none;"></div>
+
+    <!-- Контейнер для графика -->
+    <div class="chart-wrapper">
+        <canvas id="myChart"></canvas>
+    </div>
+</div>
+
+<footer>
+    <span class="version">v1.2.0</span> — приложение для быстрой визуализации табличных данных с подсчётом сумм
+</footer>
+
+<script>
+    (function() {
+        // Получаем ссылки на элементы
+        const dataInput = document.getElementById('dataInput');
+        const drawBtn = document.getElementById('drawBtn');
+        const sampleBtn = document.getElementById('sampleBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const errorBox = document.getElementById('errorBox');
+        const canvas = document.getElementById('myChart');
+
+        let chartInstance = null; // для хранения текущего графика
+
+        // Функция для отображения ошибок
+        function showError(message) {
+            errorBox.style.display = 'block';
+            errorBox.textContent = '❌ ' + message;
+        }
+
+        // Спрятать ошибку
+        function hideError() {
+            errorBox.style.display = 'none';
+        }
+
+        // Очистка предыдущего графика
+        function destroyChart() {
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+        }
+
+        // Парсинг вставленного текста
+        function parseExcelData(text) {
+            if (!text || text.trim() === '') {
+                throw new Error('Нет данных. Вставьте таблицу из Excel.');
+            }
+
+            // Разбиваем на строки, убираем пустые строки
+            const lines = text.split('\n').filter(line => line.trim() !== '');
+            if (lines.length < 2) {
+                throw new Error('Должно быть минимум 2 строки: заголовок и одна строка данных.');
+            }
+
+            // Определяем разделитель: сначала проверяем табуляцию, если её нет — пробуем точку с запятой или запятую
+            let separator = '\t';
+            if (!lines[0].includes('\t')) {
+                // если нет табуляции, пробуем ';' (Excel иногда копирует с разделителем ;)
+                if (lines[0].includes(';')) {
+                    separator = ';';
+                } else if (lines[0].includes(',')) {
+                    // осторожно: запятая может быть разделителем или частью числа
+                    // для простоты используем запятую, но лучше предупредить пользователя
+                    separator = ',';
+                } else {
+                    // последняя попытка — пробел (менее вероятно)
+                    separator = /\s+/;
+                }
+            }
+
+            // Разбираем заголовки (первая строка)
+            const headerCells = lines[0].split(separator).map(cell => cell.trim());
+            if (headerCells.length < 2) {
+                throw new Error('Заголовок должен содержать минимум два столбца (метки и хотя бы один ряд данных).');
+            }
+
+            // Разбираем строки данных (со второй строки)
+            const dataRows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cells = lines[i].split(separator).map(cell => cell.trim());
+                if (cells.length < 2) {
+                    // Если строка неполная — пропускаем с предупреждением.
+                    console.warn(`Строка ${i+1} имеет меньше двух столбцов и будет пропущена.`);
+                    continue;
+                }
+                dataRows.push(cells);
+            }
+
+            if (dataRows.length === 0) {
+                throw new Error('Нет корректных строк с данными.');
+            }
+
+            // Проверяем, что все строки имеют одинаковую длину (как минимум с заголовком)
+            const expectedCols = headerCells.length;
+            for (let row of dataRows) {
+                if (row.length < expectedCols) {
+                    throw new Error('Не все строки содержат нужное количество столбцов. Проверьте разделители.');
+                }
+                // Обрезаем лишние столбцы (если вдруг больше) — берём только первые expectedCols
+                if (row.length > expectedCols) {
+                    row.splice(expectedCols);
+                }
+            }
+
+            return { headers: headerCells, rows: dataRows };
+        }
+
+        // Построение графика
+        function renderChart(headers, rows) {
+            // labels — первый столбец каждой строки данных
+            const labels = rows.map(row => row[0]);
+
+            // datasets — для каждого заголовка начиная со второго (индекс 1..)
+            const datasets = [];
+            for (let colIdx = 1; colIdx < headers.length; colIdx++) {
+                const seriesName = headers[colIdx];
+                const data = rows.map(row => {
+                    const val = parseFloat(row[colIdx].replace(',', '.')); // замена запятой на точку
+                    return isNaN(val) ? 0 : val;
+                });
+
+                // Вычисляем сумму значений для этого столбца
+                const sum = data.reduce((acc, val) => acc + val, 0);
+                // Форматируем сумму: два знака после запятой, убираем лишние нули, если они есть
+                const formattedSum = Number.isInteger(sum) ? sum : sum.toFixed(2).replace(/\.00$/, '');
+
+                // Генерируем цвет с прозрачностью
+                const hue = (colIdx * 60) % 360; // разные цвета для рядов
+                datasets.push({
+                    label: `${seriesName} (сумма: ${formattedSum})`,  // добавляем сумму в легенду
+                    data: data,
+                    borderColor: `hsl(${hue}, 70%, 50%)`,
+                    backgroundColor: `hsla(${hue}, 70%, 70%, 0.2)`,
+                    tension: 0.2,
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                });
+            }
+
+            // Конфигурация графика
+            const config = {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false },
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+                        x: { grid: { display: false } }
+                    },
+                    elements: { line: { fill: false } }
+                }
+            };
+
+            // Уничтожаем старый график и создаём новый
+            destroyChart();
+            chartInstance = new Chart(canvas, config);
+        }
+
+        // Основная функция при нажатии кнопки
+        function handleDraw() {
+            hideError();
+            try {
+                const rawText = dataInput.value;
+                const { headers, rows } = parseExcelData(rawText);
+                renderChart(headers, rows);
+            } catch (error) {
+                showError(error.message);
+                destroyChart(); // очищаем холст при ошибке
+            }
+        }
+
+        // Загрузка примера
+        function loadSample() {
+            const sample = `Месяц	Продажи	Прибыль	Расходы
+Январь	120	25	95
+Февраль	150	30	110
+Март	200	45	140
+Апрель	170	38	125
+Май	220	55	150`;
+            dataInput.value = sample;
+            handleDraw(); // сразу построить
+        }
+
+        // Сброс данных
+        function resetData() {
+            dataInput.value = '';          // очищаем текстовое поле
+            hideError();                    // скрываем сообщение об ошибке
+            destroyChart();                 // удаляем график
+            dataInput.focus();              // возвращаем фокус
+        }
+
+        // Приклепляем обработчики
+        drawBtn.addEventListener('click', handleDraw);
+        sampleBtn.addEventListener('click', loadSample);
+        resetBtn.addEventListener('click', resetData);
+
+        // Автоматически построить график при загрузке страницы (на основе предзаполненных данных)
+        window.addEventListener('load', () => {
+            if (dataInput.value.trim() !== '') {
+                handleDraw();
+            }
+        });
+
+        // Дополнительно: разрешить построение по Ctrl+Enter
+        dataInput.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                handleDraw();
+            }
+        });
+    })();
+</script>
+</body>
+</html>
