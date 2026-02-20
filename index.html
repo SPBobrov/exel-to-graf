@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Графики из Excel + суммы</title>
+    <title>Графики из Excel + суммы (исправлен парсинг)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -145,9 +145,9 @@
 <div class="container">
     <h1>📊 Построитель графиков из Excel + суммы</h1>
     <div class="instruction">
-        <strong>📋 Инструкция:</strong> Выделите таблицу в Excel (включая заголовки столбцов), скопируйте (Ctrl+C) и вставьте ниже (Ctrl+V). Первый столбец станет подписями оси X, остальные — рядами данных. Первая строка — названия рядов. <br> 
-        <small>🔢 Десятичный разделитель — точка (если в Excel используется запятая, замените её).</small><br>
-        <strong>📊 Новое:</strong> В легенде теперь отображается сумма значений каждого столбца.
+        <strong>📋 Инструкция:</strong> Выделите таблицу в Excel (включая заголовки столбцов), скопируйте (Ctrl+C) и вставьте ниже (Ctrl+V). Первый столбец — подписи оси X, остальные — ряды данных. Первая строка — названия рядов. <br> 
+        <small>🔢 Поддерживаются любые числовые форматы: точки, запятые, символы валют, пробелы (числа извлекаются автоматически).</small><br>
+        <strong>📊 В легенде отображается сумма значений каждого столбца.</strong>
     </div>
 
     <textarea id="dataInput" placeholder="Вставьте данные из Excel (например:&#10;Месяц	Продажи	Прибыль&#10;Январь	100	25&#10;Февраль	150	30&#10;Март	200	45">Месяц	Продажи	Прибыль
@@ -171,12 +171,12 @@
 </div>
 
 <footer>
-    <span class="version">v1.2.0</span> — приложение для быстрой визуализации табличных данных с подсчётом сумм
+    <span class="version">v1.3.0</span> — надёжный парсинг чисел, поддержка дробных значений &lt; 1
 </footer>
 
 <script>
     (function() {
-        // Получаем ссылки на элементы
+        // Элементы интерфейса
         const dataInput = document.getElementById('dataInput');
         const drawBtn = document.getElementById('drawBtn');
         const sampleBtn = document.getElementById('sampleBtn');
@@ -184,20 +184,20 @@
         const errorBox = document.getElementById('errorBox');
         const canvas = document.getElementById('myChart');
 
-        let chartInstance = null; // для хранения текущего графика
+        let chartInstance = null;
 
-        // Функция для отображения ошибок
+        // Отображение ошибки
         function showError(message) {
             errorBox.style.display = 'block';
             errorBox.textContent = '❌ ' + message;
         }
 
-        // Спрятать ошибку
+        // Скрыть ошибку
         function hideError() {
             errorBox.style.display = 'none';
         }
 
-        // Очистка предыдущего графика
+        // Удалить старый график
         function destroyChart() {
             if (chartInstance) {
                 chartInstance.destroy();
@@ -205,47 +205,65 @@
             }
         }
 
-        // Парсинг вставленного текста
+        /**
+         * Улучшенное извлечение числа из строки.
+         * Удаляет все лишние символы, оставляя первое число (с учётом знака минус,
+         * десятичной запятой или точки). Затем заменяет запятую на точку и парсит.
+         * Если число не найдено, возвращает 0.
+         */
+        function parseNumber(cell) {
+            if (typeof cell !== 'string') return 0;
+            // Убираем пробелы по краям и заменяем неразрывные пробелы обычными
+            let clean = cell.trim().replace(/\s+/g, ' ').replace(/\u00A0/g, ' ');
+            // Ищем первое число: опциональный минус, затем цифры, затем опционально дробная часть с запятой или точкой
+            const match = clean.match(/-?\d+[.,]?\d*/);
+            if (!match) return 0;
+            let numStr = match[0];
+            // Если в числе есть запятая, заменяем её на точку (для parseFloat)
+            if (numStr.includes(',')) {
+                numStr = numStr.replace(',', '.');
+            }
+            const val = parseFloat(numStr);
+            return isNaN(val) ? 0 : val;
+        }
+
+        // Парсинг всего текста
         function parseExcelData(text) {
             if (!text || text.trim() === '') {
                 throw new Error('Нет данных. Вставьте таблицу из Excel.');
             }
 
-            // Разбиваем на строки, убираем пустые строки
             const lines = text.split('\n').filter(line => line.trim() !== '');
             if (lines.length < 2) {
                 throw new Error('Должно быть минимум 2 строки: заголовок и одна строка данных.');
             }
 
-            // Определяем разделитель: сначала проверяем табуляцию, если её нет — пробуем точку с запятой или запятую
+            // Определяем разделитель (табуляция, точка с запятой, запятая, пробелы)
             let separator = '\t';
             if (!lines[0].includes('\t')) {
-                // если нет табуляции, пробуем ';' (Excel иногда копирует с разделителем ;)
                 if (lines[0].includes(';')) {
                     separator = ';';
                 } else if (lines[0].includes(',')) {
-                    // осторожно: запятая может быть разделителем или частью числа
-                    // для простоты используем запятую, но лучше предупредить пользователя
+                    // Запятая может быть разделителем или десятичной запятой — предпочтём разделитель,
+                    // но если в данных много запятых, возможно, это разделитель.
                     separator = ',';
                 } else {
-                    // последняя попытка — пробел (менее вероятно)
-                    separator = /\s+/;
+                    separator = /\s+/; // пробелы как запасной вариант
                 }
             }
 
-            // Разбираем заголовки (первая строка)
+            // Заголовки
             const headerCells = lines[0].split(separator).map(cell => cell.trim());
             if (headerCells.length < 2) {
-                throw new Error('Заголовок должен содержать минимум два столбца (метки и хотя бы один ряд данных).');
+                throw new Error('Заголовок должен содержать минимум два столбца.');
             }
 
-            // Разбираем строки данных (со второй строки)
+            // Данные
             const dataRows = [];
             for (let i = 1; i < lines.length; i++) {
                 const cells = lines[i].split(separator).map(cell => cell.trim());
                 if (cells.length < 2) {
-                    // Если строка неполная — пропускаем с предупреждением.
-                    console.warn(`Строка ${i+1} имеет меньше двух столбцов и будет пропущена.`);
+                    console.warn(`Строка ${i+1} пропущена (менее двух столбцов).`);
                     continue;
                 }
                 dataRows.push(cells);
@@ -255,13 +273,12 @@
                 throw new Error('Нет корректных строк с данными.');
             }
 
-            // Проверяем, что все строки имеют одинаковую длину (как минимум с заголовком)
+            // Проверка длины строк (обрезаем лишнее, дополнять не будем)
             const expectedCols = headerCells.length;
             for (let row of dataRows) {
                 if (row.length < expectedCols) {
-                    throw new Error('Не все строки содержат нужное количество столбцов. Проверьте разделители.');
+                    throw new Error('Не все строки содержат нужное количество столбцов.');
                 }
-                // Обрезаем лишние столбцы (если вдруг больше) — берём только первые expectedCols
                 if (row.length > expectedCols) {
                     row.splice(expectedCols);
                 }
@@ -272,27 +289,21 @@
 
         // Построение графика
         function renderChart(headers, rows) {
-            // labels — первый столбец каждой строки данных
-            const labels = rows.map(row => row[0]);
+            const labels = rows.map(row => row[0]); // первый столбец — подписи X
 
-            // datasets — для каждого заголовка начиная со второго (индекс 1..)
             const datasets = [];
             for (let colIdx = 1; colIdx < headers.length; colIdx++) {
                 const seriesName = headers[colIdx];
-                const data = rows.map(row => {
-                    const val = parseFloat(row[colIdx].replace(',', '.')); // замена запятой на точку
-                    return isNaN(val) ? 0 : val;
-                });
+                // Извлекаем числа из каждой строки для данного столбца
+                const data = rows.map(row => parseNumber(row[colIdx]));
 
-                // Вычисляем сумму значений для этого столбца
+                // Вычисляем сумму
                 const sum = data.reduce((acc, val) => acc + val, 0);
-                // Форматируем сумму: два знака после запятой, убираем лишние нули, если они есть
-                const formattedSum = Number.isInteger(sum) ? sum : sum.toFixed(2).replace(/\.00$/, '');
+                const formattedSum = Number.isInteger(sum) ? sum : sum.toFixed(2).replace(/\.?0+$/, '');
 
-                // Генерируем цвет с прозрачностью
-                const hue = (colIdx * 60) % 360; // разные цвета для рядов
+                const hue = (colIdx * 60) % 360;
                 datasets.push({
-                    label: `${seriesName} (сумма: ${formattedSum})`,  // добавляем сумму в легенду
+                    label: `${seriesName} (сумма: ${formattedSum})`,
                     data: data,
                     borderColor: `hsl(${hue}, 70%, 50%)`,
                     backgroundColor: `hsla(${hue}, 70%, 70%, 0.2)`,
@@ -303,7 +314,6 @@
                 });
             }
 
-            // Конфигурация графика
             const config = {
                 type: 'line',
                 data: { labels, datasets },
@@ -322,12 +332,11 @@
                 }
             };
 
-            // Уничтожаем старый график и создаём новый
             destroyChart();
             chartInstance = new Chart(canvas, config);
         }
 
-        // Основная функция при нажатии кнопки
+        // Обработчик кнопки "Построить график"
         function handleDraw() {
             hideError();
             try {
@@ -336,11 +345,11 @@
                 renderChart(headers, rows);
             } catch (error) {
                 showError(error.message);
-                destroyChart(); // очищаем холст при ошибке
+                destroyChart();
             }
         }
 
-        // Загрузка примера
+        // Загрузить пример
         function loadSample() {
             const sample = `Месяц	Продажи	Прибыль	Расходы
 Январь	120	25	95
@@ -349,30 +358,30 @@
 Апрель	170	38	125
 Май	220	55	150`;
             dataInput.value = sample;
-            handleDraw(); // сразу построить
+            handleDraw();
         }
 
-        // Сброс данных
+        // Сброс
         function resetData() {
-            dataInput.value = '';          // очищаем текстовое поле
-            hideError();                    // скрываем сообщение об ошибке
-            destroyChart();                 // удаляем график
-            dataInput.focus();              // возвращаем фокус
+            dataInput.value = '';
+            hideError();
+            destroyChart();
+            dataInput.focus();
         }
 
-        // Приклепляем обработчики
+        // Привязка событий
         drawBtn.addEventListener('click', handleDraw);
         sampleBtn.addEventListener('click', loadSample);
         resetBtn.addEventListener('click', resetData);
 
-        // Автоматически построить график при загрузке страницы (на основе предзаполненных данных)
+        // При загрузке строим график, если поле не пустое
         window.addEventListener('load', () => {
             if (dataInput.value.trim() !== '') {
                 handleDraw();
             }
         });
 
-        // Дополнительно: разрешить построение по Ctrl+Enter
+        // Ctrl+Enter для построения
         dataInput.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
